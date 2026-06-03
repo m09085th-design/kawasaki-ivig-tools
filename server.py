@@ -47,7 +47,7 @@ def search_pubmed(q: str = Query(..., description="検索キーワード"), max_
     try:
         search_resp = requests.get(
             "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
-            params={"db": "pubmed", "term": q, "retmax": max_results, "retmode": "json", "sort": "relevance"},
+            params={"db": "pubmed", "term": q, "retmax": max_results, "retmode": "json", "sort": "pub+date"},
             timeout=15,
         )
         search_resp.raise_for_status()
@@ -98,7 +98,7 @@ def _parse_xml(xml_text: str) -> list[dict]:
 
         journal = article.findtext(".//Journal/Title") or article.findtext(".//MedlineTA") or ""
         year_elem = article.find(".//PubDate/Year") or article.find(".//PubDate/MedlineDate")
-        year = year_elem.text[:4] if year_elem is not None else ""
+        year = (year_elem.text or "")[:4] if year_elem is not None else ""
 
         articles.append({
             "pmid": pmid,
@@ -233,6 +233,12 @@ def save_articles(req: SaveRequest):
                 "URL": {"url": art["url"]},
             },
             "children": [
+                {"object": "block", "type": "heading_2",
+                 "heading_2": {"rich_text": [{"text": {"content": "出版情報"}}]}},
+                {"object": "block", "type": "paragraph",
+                 "paragraph": {"rich_text": [{"text": {"content":
+                     f"📅 出版年: {art.get('year', 'N/A')}　|　📖 雑誌: {art.get('journal', 'N/A')}　|　🔗 PMID: {art.get('pmid', '')}"
+                 }}]}},
                 {"object": "block", "type": "heading_2",
                  "heading_2": {"rich_text": [{"text": {"content": "Abstract"}}]}},
                 {"object": "block", "type": "paragraph",
