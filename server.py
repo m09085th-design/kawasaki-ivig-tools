@@ -1,6 +1,8 @@
+import os
 import xml.etree.ElementTree as ET
 from typing import Optional
 
+import anthropic
 import requests
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -20,22 +22,48 @@ def root():
 # Translation
 # ---------------------------------------------------------------------------
 
+def _translate_with_claude(text: str) -> str:
+    """Claude APIで医療用語に特化した日本語→英語翻訳を行う。"""
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    message = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=256,
+        system=(
+            "You are a medical literature search assistant specializing in PubMed queries. "
+            "Translate Japanese medical terminology to English for PubMed searches. "
+            "Preserve disease names, drug names, procedures, and anatomical terms in their standard English medical form. "
+            "Return only the translated text, nothing else."
+        ),
+        messages=[{"role": "user", "content": text}],
+    )
+    return message.content[0].text.strip()
+
+
+def _translate_with_mymemory(text: str) -> str:
+    """MyMemory無料APIで日本語→英語翻訳を行う（フォールバック）。"""
+    resp = requests.get(
+        "https://api.mymemory.translated.net/get",
+        params={"q": text, "langpair": "ja|en"},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if data.get("responseStatus") == 200:
+        return data["responseData"]["translatedText"]
+    raise ValueError(data.get("responseDetails", "翻訳サービスエラー"))
+
+
 @app.get("/api/translate")
 def translate(q: str = Query(..., description="翻訳するテキスト")):
-    """日本語テキストを英語に翻訳する（MyMemory無料API使用）。"""
+    """日本語テキストを英語に翻訳する。ANTHROPIC_API_KEY があれば Claude を使用し、なければ MyMemory にフォールバック。"""
     try:
-        resp = requests.get(
-            "https://api.mymemory.translated.net/get",
-            params={"q": q, "langpair": "ja|en"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("responseStatus") == 200:
-            return {"translated": data["responseData"]["translatedText"], "original": q}
-        raise HTTPException(status_code=502, detail=f"翻訳サービスエラー: {data.get('responseDetails', '')}")
-    except requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"翻訳リクエスト失敗: {e}")
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            translated = _translate_with_claude(q)
+        else:
+            translated = _translate_with_mymemory(q)
+        return {"translated": translated, "original": q}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"翻訳失敗: {e}")
 
 
 # ---------------------------------------------------------------------------
