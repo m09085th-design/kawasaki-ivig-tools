@@ -360,29 +360,57 @@ function saveSettings() {
   showToast('設定を保存しました', 'success');
 }
 
+function isJapanese(text) {
+  return /[぀-ゟ゠-ヿ一-鿿]/.test(text);
+}
+
 // Search
 async function doSearch() {
   const q = document.getElementById('queryInput').value.trim();
   if (!q) return;
   const max = parseInt(document.getElementById('maxResults').value) || 50;
 
-  setStatus('loading', '🔄 PubMedを検索中...');
   document.getElementById('searchBtn').disabled = true;
   document.getElementById('main').innerHTML = '';
   selectedPmids.clear();
   savedPmids.clear();
   updateFab();
 
+  let searchQuery = q;
+  let translatedFrom = '';
+
+  // 日本語が含まれていれば英語に翻訳
+  if (isJapanese(q)) {
+    setStatus('loading', '🔄 日本語を英語に翻訳中...');
+    try {
+      const tResp = await fetch(`${API}/api/translate?q=${encodeURIComponent(q)}`);
+      if (tResp.ok) {
+        const tData = await tResp.json();
+        searchQuery = tData.translated;
+        translatedFrom = q;
+      }
+    } catch(e) {
+      // 翻訳失敗時はそのまま検索
+    }
+  }
+
+  setStatus('loading', translatedFrom
+    ? `🔄 「${searchQuery}」で検索中...`
+    : '🔄 PubMedを検索中...');
+
   try {
-    const resp = await fetch(`${API}/api/search?q=${encodeURIComponent(q)}&max_results=${max}`);
+    const resp = await fetch(`${API}/api/search?q=${encodeURIComponent(searchQuery)}&max_results=${max}`);
     if (!resp.ok) throw new Error(await resp.text());
     const data = await resp.json();
     articles = data.articles;
-    lastQuery = q;
+    lastQuery = searchQuery;
     document.getElementById('resultCount').textContent = `${data.total} 件`;
     renderArticles();
+    const label = translatedFrom
+      ? `${data.total} 件見つかりました（翻訳: 「${translatedFrom}」→「${searchQuery}」）`
+      : `${data.total} 件見つかりました`;
     setStatus(data.total > 0 ? 'success' : 'info',
-      data.total > 0 ? `${data.total} 件見つかりました` : '検索結果がありませんでした');
+      data.total > 0 ? label : '検索結果がありませんでした');
   } catch (e) {
     setStatus('error', '検索エラー: ' + e.message);
   } finally {

@@ -17,6 +17,28 @@ def root():
 
 
 # ---------------------------------------------------------------------------
+# Translation
+# ---------------------------------------------------------------------------
+
+@app.get("/api/translate")
+def translate(q: str = Query(..., description="翻訳するテキスト")):
+    """日本語テキストを英語に翻訳する（MyMemory無料API使用）。"""
+    try:
+        resp = requests.get(
+            "https://api.mymemory.translated.net/get",
+            params={"q": q, "langpair": "ja|en"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("responseStatus") == 200:
+            return {"translated": data["responseData"]["translatedText"], "original": q}
+        raise HTTPException(status_code=502, detail=f"翻訳サービスエラー: {data.get('responseDetails', '')}")
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"翻訳リクエスト失敗: {e}")
+
+
+# ---------------------------------------------------------------------------
 # PubMed
 # ---------------------------------------------------------------------------
 
