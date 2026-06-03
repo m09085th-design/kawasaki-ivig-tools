@@ -192,8 +192,11 @@ def test_notion(req: TestNotionRequest):
     if r2.status_code == 404:
         raise HTTPException(status_code=404,
             detail="ページが見つかりません。①ページIDが正しいか、②インテグレーションをページに「接続」しているか確認してください。")
+    if r2.status_code == 403:
+        raise HTTPException(status_code=403,
+            detail="アクセス拒否（403）。Notionページ右上「…」→「接続」からインテグレーションを追加してください。")
     if not r2.ok:
-        raise HTTPException(status_code=r2.status_code, detail=f"ページ確認エラー: {r2.text}")
+        raise HTTPException(status_code=r2.status_code, detail=f"ページ確認エラー ({r2.status_code}): {r2.text}")
 
     return {"ok": True, "page_id": page_id, "message": "接続成功！APIトークンとページIDは正しく設定されています。"}
 
