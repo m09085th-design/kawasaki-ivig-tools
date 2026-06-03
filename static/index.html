@@ -182,6 +182,9 @@
     padding: 20px 20px calc(20px + var(--safe));
     z-index: 201;
     transform: translateY(100%); transition: transform 0.3s ease;
+    max-height: 90dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
   .overlay.open .settings-sheet { transform: translateY(0); }
   .sheet-handle {
@@ -612,6 +615,16 @@ window.addEventListener('load', () => {
     setTimeout(openSettings, 800);
   }
 });
+
+// モバイルキーボード表示時に設定シートが隠れないよう調整
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    const sheet = document.querySelector('.settings-sheet');
+    if (!document.getElementById('overlay').classList.contains('open')) return;
+    const vh = window.visualViewport.height;
+    sheet.style.maxHeight = (vh * 0.92) + 'px';
+  });
+}
 </script>
 </body>
 </html>
