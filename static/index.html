@@ -220,6 +220,20 @@
   .toast.show { opacity: 1; }
   .toast.success { background: #14532d; color: var(--success); }
   .toast.error { background: #450a0a; color: var(--error); }
+
+  /* Select all bar */
+  .select-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px; border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .sel-btn {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); font-size: 12px;
+    padding: 5px 12px; cursor: pointer;
+  }
+  .sel-btn:hover { background: var(--border); }
+  .sel-count { font-size: 12px; color: var(--muted); margin-left: auto; }
 </style>
 </head>
 <body>
@@ -239,7 +253,7 @@
 
 <div class="options-row">
   <label>最大件数
-    <input type="number" id="maxResults" value="20" min="1" max="100">
+    <input type="number" id="maxResults" value="50" min="1" max="100">
   </label>
   <span id="resultCount"></span>
 </div>
@@ -285,7 +299,8 @@ const API = '';
 let articles = [];
 let selectedPmids = new Set();
 let savedPmids = new Set();
-let notionDbId = localStorage.getItem('notionDbId') || '';
+// キーワード→データベースIDのマップ
+let notionDbMap = JSON.parse(localStorage.getItem('notionDbMap') || '{}');
 let lastQuery = '';
 
 // Settings
@@ -349,14 +364,13 @@ function saveSettings() {
 async function doSearch() {
   const q = document.getElementById('queryInput').value.trim();
   if (!q) return;
-  const max = parseInt(document.getElementById('maxResults').value) || 20;
+  const max = parseInt(document.getElementById('maxResults').value) || 50;
 
   setStatus('loading', '🔄 PubMedを検索中...');
   document.getElementById('searchBtn').disabled = true;
   document.getElementById('main').innerHTML = '';
   selectedPmids.clear();
   savedPmids.clear();
-  notionDbId = localStorage.getItem('notionDbId') || '';
   updateFab();
 
   try {
@@ -382,8 +396,9 @@ function renderArticles() {
     main.innerHTML = '<div class="empty"><div class="empty-icon">📭</div>該当する文献がありませんでした</div>';
     return;
   }
-  main.innerHTML = articles.map((art, i) => `
-    <div class="article-card ${savedPmids.has(art.pmid) ? 'saved' : ''}" id="card-${art.pmid}">
+  const selectableCount = articles.filter(a => !savedPmids.has(a.pmid)).length;
+  const cards = articles.map((art, i) => `
+    <div class="article-card ${savedPmids.has(art.pmid) ? 'saved' : selectedPmids.has(art.pmid) ? 'selected' : ''}" id="card-${art.pmid}">
       <div class="checkbox ${selectedPmids.has(art.pmid) ? 'checked' : ''} ${savedPmids.has(art.pmid) ? 'disabled' : ''}"
            onclick="toggleSelect('${art.pmid}')" id="chk-${art.pmid}"></div>
       <div class="article-body">
@@ -401,15 +416,46 @@ function renderArticles() {
       </div>
     </div>
   `).join('');
+  main.innerHTML = `
+    <div class="select-bar">
+      <button class="sel-btn" onclick="selectAll()">全選択</button>
+      <button class="sel-btn" onclick="deselectAll()">全解除</button>
+      <span class="sel-count" id="selCount">${selectableCount} 件中 ${selectedPmids.size} 件選択中</span>
+    </div>
+    ${cards}
+  `;
+}
+
+function selectAll() {
+  articles.forEach(a => { if (!savedPmids.has(a.pmid)) selectedPmids.add(a.pmid); });
+  refreshCheckboxes();
+  updateFab();
+}
+
+function deselectAll() {
+  selectedPmids.clear();
+  refreshCheckboxes();
+  updateFab();
+}
+
+function refreshCheckboxes() {
+  articles.forEach(a => {
+    const chk = document.getElementById('chk-' + a.pmid);
+    const card = document.getElementById('card-' + a.pmid);
+    if (!chk || !card) return;
+    chk.classList.toggle('checked', selectedPmids.has(a.pmid));
+    card.classList.toggle('selected', selectedPmids.has(a.pmid));
+  });
+  const selCount = document.getElementById('selCount');
+  const selectableCount = articles.filter(a => !savedPmids.has(a.pmid)).length;
+  if (selCount) selCount.textContent = `${selectableCount} 件中 ${selectedPmids.size} 件選択中`;
 }
 
 function toggleSelect(pmid) {
   if (savedPmids.has(pmid)) return;
   if (selectedPmids.has(pmid)) selectedPmids.delete(pmid);
   else selectedPmids.add(pmid);
-  const chk = document.getElementById('chk-' + pmid);
-  chk.classList.toggle('checked', selectedPmids.has(pmid));
-  document.getElementById('card-' + pmid).classList.toggle('selected', selectedPmids.has(pmid));
+  refreshCheckboxes();
   updateFab();
 }
 
@@ -445,21 +491,27 @@ async function saveSelected() {
   setStatus('loading', `🔄 Notionに保存中 (0/${toSave.length})...`);
 
   try {
-    // DBがなければ作成
-    if (!notionDbId) {
-      setStatus('loading', '🔄 Notionにデータベースを作成中...');
+    // キーワードごとのDBを取得または作成
+    let dbId = notionDbMap[lastQuery];
+    if (!dbId) {
+      setStatus('loading', `🔄 「${lastQuery}」用データベースを作成中...`);
       const dbResp = await fetch(`${API}/api/create-database`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notion_token: token, parent_page_id: parentPageId }),
+        body: JSON.stringify({
+          notion_token: token,
+          parent_page_id: parentPageId,
+          name: `PubMed: ${lastQuery}`,
+        }),
       });
       if (!dbResp.ok) {
         const err = await dbResp.text();
         throw new Error('DB作成エラー: ' + err);
       }
       const dbData = await dbResp.json();
-      notionDbId = dbData.database_id;
-      localStorage.setItem('notionDbId', notionDbId);
+      dbId = dbData.database_id;
+      notionDbMap[lastQuery] = dbId;
+      localStorage.setItem('notionDbMap', JSON.stringify(notionDbMap));
     }
 
     setStatus('loading', `🔄 保存中 (0/${toSave.length})...`);
@@ -468,7 +520,7 @@ async function saveSelected() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         notion_token: token,
-        database_id: notionDbId,
+        database_id: dbId,
         articles: toSave,
         query: lastQuery,
       }),
@@ -481,6 +533,7 @@ async function saveSelected() {
       selectedPmids.delete(pmid);
     });
     renderArticles();
+    refreshCheckboxes();
     updateFab();
 
     if (result.errors.length > 0) {

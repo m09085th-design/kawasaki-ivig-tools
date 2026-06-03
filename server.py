@@ -102,6 +102,7 @@ class TestNotionRequest(BaseModel):
 class CreateDbRequest(BaseModel):
     notion_token: str
     parent_page_id: str
+    name: str = "PubMed文献リスト"
 
 
 class SaveRequest(BaseModel):
@@ -169,7 +170,7 @@ def create_database(req: CreateDbRequest):
     parent_id = _clean_page_id(req.parent_page_id)
     payload = {
         "parent": {"type": "page_id", "page_id": parent_id},
-        "title": [{"type": "text", "text": {"content": "PubMed文献リスト"}}],
+        "title": [{"type": "text", "text": {"content": req.name[:100]}}],
         "properties": {
             "Title": {"title": {}},
             "PMID": {"rich_text": {}},
