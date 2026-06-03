@@ -1,2 +1,6 @@
 streamlit
 pandas
+requests
+fastapi
+uvicorn[standard]
+anthropic

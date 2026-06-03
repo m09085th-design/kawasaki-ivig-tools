@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2563eb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PubMed検索">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<title>PubMed → Notion</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --surface2: #334155;
+    --border: #475569;
+    --accent: #2563eb;
+    --accent-light: #3b82f6;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --success: #22c55e;
+    --error: #ef4444;
+    --safe: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Header */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+    padding-top: calc(12px + env(safe-area-inset-top, 0px));
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header-row { display: flex; align-items: center; gap: 10px; }
+  .app-title { font-size: 17px; font-weight: 700; flex: 1; }
+  .settings-btn {
+    background: none; border: none; color: var(--muted);
+    font-size: 22px; cursor: pointer; padding: 4px; line-height: 1;
+  }
+
+  /* Search bar */
+  .search-row {
+    display: flex; gap: 8px;
+    padding: 12px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .search-input {
+    flex: 1; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px;
+    color: var(--text); font-size: 16px; outline: none;
+    -webkit-appearance: none;
+  }
+  .search-input:focus { border-color: var(--accent-light); }
+  .search-btn {
+    background: var(--accent); border: none; border-radius: 10px;
+    color: white; font-size: 14px; font-weight: 600;
+    padding: 10px 16px; cursor: pointer; white-space: nowrap;
+  }
+  .search-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Options row */
+  .options-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px; color: var(--muted);
+  }
+  .options-row label { display: flex; align-items: center; gap: 6px; }
+  .options-row input[type=number] {
+    width: 52px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 8px; color: var(--text); font-size: 13px;
+  }
+
+  /* Main content */
+  main { flex: 1; overflow-y: auto; padding-bottom: calc(80px + var(--safe)); }
+
+  /* Status bar */
+  .status-bar {
+    padding: 10px 16px; font-size: 13px; color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .status-bar.error { color: var(--error); }
+  .status-bar.success { color: var(--success); }
+  .spinner { animation: spin 0.8s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Article card */
+  .article-card {
+    border-bottom: 1px solid var(--border);
+    padding: 14px 16px;
+    display: flex; gap: 12px; align-items: flex-start;
+    transition: background 0.15s;
+  }
+  .article-card.selected { background: #1e3a5f; }
+  .article-card.saved { opacity: 0.5; }
+
+  .checkbox {
+    width: 22px; height: 22px; border: 2px solid var(--border);
+    border-radius: 6px; flex-shrink: 0; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg); transition: all 0.15s; margin-top: 2px;
+  }
+  .checkbox.checked { background: var(--accent); border-color: var(--accent); }
+  .checkbox.checked::after { content: '✓'; color: white; font-size: 14px; font-weight: bold; }
+  .checkbox.disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .article-body { flex: 1; min-width: 0; }
+  .article-title {
+    font-size: 14px; font-weight: 600; line-height: 1.4;
+    color: var(--text); margin-bottom: 4px;
+  }
+  .article-title a { color: var(--accent-light); text-decoration: none; }
+  .article-meta { font-size: 12px; color: var(--muted); margin-bottom: 6px; line-height: 1.4; }
+  .badge-saved {
+    display: inline-block; background: var(--success); color: white;
+    font-size: 10px; font-weight: 700; border-radius: 4px;
+    padding: 1px 5px; margin-left: 6px; vertical-align: middle;
+  }
+
+  .abstract-toggle {
+    background: none; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--muted); font-size: 12px; padding: 4px 10px;
+    cursor: pointer; margin-bottom: 6px;
+  }
+  .abstract-text {
+    font-size: 13px; color: var(--muted); line-height: 1.6;
+    display: none; padding: 8px; background: var(--bg);
+    border-radius: 8px; border: 1px solid var(--border);
+  }
+  .abstract-text.open { display: block; }
+
+  /* Empty state */
+  .empty {
+    text-align: center; padding: 60px 24px;
+    color: var(--muted); font-size: 15px; line-height: 1.7;
+  }
+  .empty-icon { font-size: 48px; margin-bottom: 12px; }
+
+  /* FAB */
+  .fab {
+    position: fixed;
+    bottom: calc(20px + var(--safe));
+    left: 50%; transform: translateX(-50%);
+    background: var(--accent); color: white;
+    border: none; border-radius: 50px;
+    font-size: 14px; font-weight: 700;
+    padding: 14px 28px;
+    box-shadow: 0 4px 20px rgba(37,99,235,0.5);
+    cursor: pointer; white-space: nowrap;
+    display: none;
+    transition: opacity 0.2s;
+    z-index: 90;
+  }
+  .fab:disabled { opacity: 0.5; cursor: not-allowed; }
+  .fab.visible { display: block; }
+
+  /* Settings overlay */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    z-index: 200; display: none;
+  }
+  .overlay.open { display: block; }
+  .settings-sheet {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--surface); border-radius: 20px 20px 0 0;
+    padding: 20px 20px calc(20px + var(--safe));
+    z-index: 201;
+    transform: translateY(100%); transition: transform 0.3s ease;
+    max-height: 90dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .overlay.open .settings-sheet { transform: translateY(0); }
+  .sheet-handle {
+    width: 36px; height: 4px; background: var(--border);
+    border-radius: 2px; margin: 0 auto 20px;
+  }
+  .sheet-title { font-size: 17px; font-weight: 700; margin-bottom: 16px; }
+  .field-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; display: block; }
+  .field-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px;
+    color: var(--text); font-size: 15px; margin-bottom: 14px;
+    outline: none; -webkit-appearance: none;
+  }
+  .field-input:focus { border-color: var(--accent-light); }
+  .save-settings-btn {
+    width: 100%; background: var(--accent); border: none;
+    border-radius: 10px; color: white; font-size: 16px; font-weight: 700;
+    padding: 14px; cursor: pointer;
+  }
+  .settings-hint {
+    font-size: 12px; color: var(--muted); margin-top: 12px; line-height: 1.5;
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed; top: calc(60px + env(safe-area-inset-top, 0px));
+    left: 50%; transform: translateX(-50%);
+    background: var(--surface2); color: var(--text);
+    border-radius: 20px; padding: 10px 20px;
+    font-size: 14px; z-index: 300;
+    opacity: 0; transition: opacity 0.3s;
+    pointer-events: none; white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .toast.show { opacity: 1; }
+  .toast.success { background: #14532d; color: var(--success); }
+  .toast.error { background: #450a0a; color: var(--error); }
+
+  /* Select all bar */
+  .select-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px; border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .sel-btn {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); font-size: 12px;
+    padding: 5px 12px; cursor: pointer;
+  }
+  .sel-btn:hover { background: var(--border); }
+  .sel-count { font-size: 12px; color: var(--muted); margin-left: auto; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-row">
+    <div class="app-title">PubMed → Notion</div>
+    <button class="settings-btn" onclick="openSettings()" title="設定">⚙️</button>
+  </div>
+</header>
+
+<div class="search-row">
+  <input class="search-input" id="queryInput" type="search" placeholder="例: Kawasaki disease IVIG"
+    enterkeyhint="search" autocorrect="off" autocapitalize="off" spellcheck="false">
+  <button class="search-btn" id="searchBtn" onclick="doSearch()">検索</button>
+</div>
+
+<div class="options-row">
+  <label>最大件数
+    <input type="number" id="maxResults" value="50" min="1" max="100">
+  </label>
+  <span id="resultCount"></span>
+</div>
+
+<div id="statusBar" class="status-bar" style="display:none"></div>
+
+<main id="main">
+  <div class="empty">
+    <div class="empty-icon">🔬</div>
+    キーワードを入力して<br>PubMedで文献を検索してください
+  </div>
+</main>
+
+<button class="fab" id="fab" onclick="saveSelected()">
+  <span id="fabLabel">選択した 0 件を Notion に保存</span>
+</button>
+
+<!-- Settings sheet -->
+<div class="overlay" id="overlay" onclick="closeSettings()">
+  <div class="settings-sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">⚙️ Notion 設定</div>
+    <label class="field-label">Notion API トークン</label>
+    <input class="field-input" id="notionToken" type="password" placeholder="ntn_xxxxxxxx または secret_xxxxxxxx">
+    <label class="field-label">親ページ URL または ID</label>
+    <input class="field-input" id="parentPageId" type="text" placeholder="https://notion.so/...">
+    <button class="save-settings-btn" onclick="saveSettings()">保存して閉じる</button>
+    <button class="test-btn" id="testBtn" onclick="testNotion()" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;padding:12px;cursor:pointer;margin-top:8px;">接続テスト</button>
+    <div id="testResult" style="margin-top:10px;font-size:13px;line-height:1.5;display:none;padding:10px;border-radius:8px;"></div>
+    <div class="settings-hint">
+      ① <a href="https://www.notion.so/my-integrations" target="_blank" style="color:var(--accent-light)">Notion Integrations</a> で「内部」インテグレーション作成<br>
+      ② シークレット（ntn_ または secret_ で始まる）をコピー<br>
+      ③ 保存先ページ右上「…」→「接続」でインテグレーションを許可<br>
+      ④ 初回保存時に「PubMed文献リスト」DBが自動作成されます
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '';
+let articles = [];
+let selectedPmids = new Set();
+let savedPmids = new Set();
+// キーワード→データベースIDのマップ
+let notionDbMap = JSON.parse(localStorage.getItem('notionDbMap') || '{}');
+let lastQuery = '';
+
+// Settings
+function openSettings() {
+  document.getElementById('notionToken').value = localStorage.getItem('notionToken') || '';
+  document.getElementById('parentPageId').value = localStorage.getItem('parentPageId') || '';
+  document.getElementById('overlay').classList.add('open');
+}
+function closeSettings() {
+  document.getElementById('overlay').classList.remove('open');
+}
+async function testNotion() {
+  const token = document.getElementById('notionToken').value.trim();
+  const pageId = document.getElementById('parentPageId').value.trim();
+  const resultEl = document.getElementById('testResult');
+  const btn = document.getElementById('testBtn');
+  if (!token || !pageId) {
+    resultEl.style.display = 'block';
+    resultEl.style.background = '#450a0a';
+    resultEl.style.color = 'var(--error)';
+    resultEl.textContent = 'トークンとページIDを入力してください。';
+    return;
+  }
+  btn.textContent = '確認中...'; btn.disabled = true;
+  resultEl.style.display = 'none';
+  try {
+    const resp = await fetch('/api/test-notion', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({notion_token: token, parent_page_id: pageId}),
+    });
+    const data = await resp.json();
+    resultEl.style.display = 'block';
+    if (resp.ok) {
+      resultEl.style.background = '#14532d';
+      resultEl.style.color = 'var(--success)';
+      resultEl.textContent = '✅ ' + data.message;
+    } else {
+      resultEl.style.background = '#450a0a';
+      resultEl.style.color = 'var(--error)';
+      resultEl.textContent = '❌ ' + (data.detail || '接続失敗');
+    }
+  } catch(e) {
+    resultEl.style.display = 'block';
+    resultEl.style.background = '#450a0a';
+    resultEl.style.color = 'var(--error)';
+    resultEl.textContent = 'エラー: ' + e.message;
+  } finally {
+    btn.textContent = '接続テスト'; btn.disabled = false;
+  }
+}
+
+function saveSettings() {
+  localStorage.setItem('notionToken', document.getElementById('notionToken').value.trim());
+  localStorage.setItem('parentPageId', document.getElementById('parentPageId').value.trim());
+  closeSettings();
+  showToast('設定を保存しました', 'success');
+}
+
+function isJapanese(text) {
+  return /[぀-ゟ゠-ヿ一-鿿]/.test(text);
+}
+
+// Search
+async function doSearch() {
+  const q = document.getElementById('queryInput').value.trim();
+  if (!q) return;
+  const max = parseInt(document.getElementById('maxResults').value) || 50;
+
+  document.getElementById('searchBtn').disabled = true;
+  document.getElementById('main').innerHTML = '';
+  selectedPmids.clear();
+  savedPmids.clear();
+  updateFab();
+
+  let searchQuery = q;
+  let translatedFrom = '';
+
+  // 日本語が含まれていれば英語に翻訳
+  if (isJapanese(q)) {
+    setStatus('loading', '🔄 日本語を英語に翻訳中...');
+    try {
+      const tResp = await fetch(`${API}/api/translate?q=${encodeURIComponent(q)}`);
+      if (tResp.ok) {
+        const tData = await tResp.json();
+        searchQuery = tData.translated;
+        translatedFrom = q;
+      }
+    } catch(e) {
+      // 翻訳失敗時はそのまま検索
+    }
+  }
+
+  setStatus('loading', translatedFrom
+    ? `🔄 「${searchQuery}」で検索中...`
+    : '🔄 PubMedを検索中...');
+
+  try {
+    const resp = await fetch(`${API}/api/search?q=${encodeURIComponent(searchQuery)}&max_results=${max}`);
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    articles = data.articles;
+    lastQuery = searchQuery;
+    document.getElementById('resultCount').textContent = `${data.total} 件`;
+    renderArticles();
+    const label = translatedFrom
+      ? `${data.total} 件見つかりました（翻訳: 「${translatedFrom}」→「${searchQuery}」）`
+      : `${data.total} 件見つかりました`;
+    setStatus(data.total > 0 ? 'success' : 'info',
+      data.total > 0 ? label : '検索結果がありませんでした');
+  } catch (e) {
+    setStatus('error', '検索エラー: ' + e.message);
+  } finally {
+    document.getElementById('searchBtn').disabled = false;
+  }
+}
+
+function renderArticles() {
+  const main = document.getElementById('main');
+  if (articles.length === 0) {
+    main.innerHTML = '<div class="empty"><div class="empty-icon">📭</div>該当する文献がありませんでした</div>';
+    return;
+  }
+  const selectableCount = articles.filter(a => !savedPmids.has(a.pmid)).length;
+  const cards = articles.map((art, i) => `
+    <div class="article-card ${savedPmids.has(art.pmid) ? 'saved' : selectedPmids.has(art.pmid) ? 'selected' : ''}" id="card-${art.pmid}">
+      <div class="checkbox ${selectedPmids.has(art.pmid) ? 'checked' : ''} ${savedPmids.has(art.pmid) ? 'disabled' : ''}"
+           onclick="toggleSelect('${art.pmid}')" id="chk-${art.pmid}"></div>
+      <div class="article-body">
+        <div class="article-title">
+          <a href="${art.url}" target="_blank">${escHtml(art.title)}</a>
+          ${savedPmids.has(art.pmid) ? '<span class="badge-saved">保存済</span>' : ''}
+        </div>
+        <div class="article-meta">
+          ${escHtml(art.authors)}<br>
+          <em>${escHtml(art.journal)}</em>${art.year ? ' · ' + art.year : ''}
+          · PMID: ${art.pmid}
+        </div>
+        <button class="abstract-toggle" onclick="toggleAbstract('${art.pmid}')">Abstract ▾</button>
+        <div class="abstract-text" id="abs-${art.pmid}">${escHtml(art.abstract)}</div>
+      </div>
+    </div>
+  `).join('');
+  main.innerHTML = `
+    <div class="select-bar">
+      <button class="sel-btn" onclick="selectAll()">全選択</button>
+      <button class="sel-btn" onclick="deselectAll()">全解除</button>
+      <span class="sel-count" id="selCount">${selectableCount} 件中 ${selectedPmids.size} 件選択中</span>
+    </div>
+    ${cards}
+  `;
+}
+
+function selectAll() {
+  articles.forEach(a => { if (!savedPmids.has(a.pmid)) selectedPmids.add(a.pmid); });
+  refreshCheckboxes();
+  updateFab();
+}
+
+function deselectAll() {
+  selectedPmids.clear();
+  refreshCheckboxes();
+  updateFab();
+}
+
+function refreshCheckboxes() {
+  articles.forEach(a => {
+    const chk = document.getElementById('chk-' + a.pmid);
+    const card = document.getElementById('card-' + a.pmid);
+    if (!chk || !card) return;
+    chk.classList.toggle('checked', selectedPmids.has(a.pmid));
+    card.classList.toggle('selected', selectedPmids.has(a.pmid));
+  });
+  const selCount = document.getElementById('selCount');
+  const selectableCount = articles.filter(a => !savedPmids.has(a.pmid)).length;
+  if (selCount) selCount.textContent = `${selectableCount} 件中 ${selectedPmids.size} 件選択中`;
+}
+
+function toggleSelect(pmid) {
+  if (savedPmids.has(pmid)) return;
+  if (selectedPmids.has(pmid)) selectedPmids.delete(pmid);
+  else selectedPmids.add(pmid);
+  refreshCheckboxes();
+  updateFab();
+}
+
+function toggleAbstract(pmid) {
+  const el = document.getElementById('abs-' + pmid);
+  const btn = el.previousElementSibling;
+  el.classList.toggle('open');
+  btn.textContent = el.classList.contains('open') ? 'Abstract ▴' : 'Abstract ▾';
+}
+
+function updateFab() {
+  const fab = document.getElementById('fab');
+  const n = selectedPmids.size;
+  document.getElementById('fabLabel').textContent = `選択した ${n} 件を Notion に保存`;
+  fab.classList.toggle('visible', n > 0);
+  fab.disabled = false;
+}
+
+// Save to Notion
+async function saveSelected() {
+  const token = localStorage.getItem('notionToken');
+  const parentPageId = localStorage.getItem('parentPageId');
+  if (!token || !parentPageId) {
+    openSettings();
+    showToast('先にNotion設定を入力してください', 'error');
+    return;
+  }
+
+  const toSave = articles.filter(a => selectedPmids.has(a.pmid));
+  if (toSave.length === 0) return;
+
+  document.getElementById('fab').disabled = true;
+  setStatus('loading', `🔄 Notionに保存中 (0/${toSave.length})...`);
+
+  try {
+    // キーワードごとのDBを取得または作成
+    let dbId = notionDbMap[lastQuery];
+    if (!dbId) {
+      setStatus('loading', `🔄 「${lastQuery}」用データベースを作成中...`);
+      const dbResp = await fetch(`${API}/api/create-database`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          notion_token: token,
+          parent_page_id: parentPageId,
+          name: `PubMed: ${lastQuery}`,
+        }),
+      });
+      if (!dbResp.ok) {
+        const err = await dbResp.text();
+        throw new Error('DB作成エラー: ' + err);
+      }
+      const dbData = await dbResp.json();
+      dbId = dbData.database_id;
+      notionDbMap[lastQuery] = dbId;
+      localStorage.setItem('notionDbMap', JSON.stringify(notionDbMap));
+    }
+
+    setStatus('loading', `🔄 保存中 (0/${toSave.length})...`);
+    const saveResp = await fetch(`${API}/api/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        notion_token: token,
+        database_id: dbId,
+        articles: toSave,
+        query: lastQuery,
+      }),
+    });
+    if (!saveResp.ok) throw new Error(await saveResp.text());
+    const result = await saveResp.json();
+
+    result.saved.forEach(pmid => {
+      savedPmids.add(pmid);
+      selectedPmids.delete(pmid);
+    });
+    renderArticles();
+    refreshCheckboxes();
+    updateFab();
+
+    if (result.errors.length > 0) {
+      setStatus('error', `${result.saved.length} 件保存 / ${result.errors.length} 件エラー`);
+    } else {
+      setStatus('success', `✅ ${result.saved.length} 件をNotionに保存しました`);
+      showToast(`${result.saved.length} 件保存完了！`, 'success');
+    }
+  } catch (e) {
+    setStatus('error', '保存エラー: ' + e.message);
+    showToast('保存に失敗しました', 'error');
+    document.getElementById('fab').disabled = false;
+  }
+}
+
+// UI helpers
+function setStatus(type, msg) {
+  const el = document.getElementById('statusBar');
+  el.style.display = 'flex';
+  el.className = 'status-bar ' + (type === 'loading' ? '' : type === 'success' ? 'success' : type === 'error' ? 'error' : '');
+  el.innerHTML = type === 'loading' ? `<span class="spinner">⏳</span> ${msg}` : msg;
+}
+
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  setTimeout(() => t.className = 'toast ' + type, 2500);
+}
+
+function escHtml(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Enter key search
+document.getElementById('queryInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
+
+// PWA: service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+}
+
+// Auto-open settings if not configured
+window.addEventListener('load', () => {
+  if (!localStorage.getItem('notionToken')) {
+    setTimeout(openSettings, 800);
+  }
+});
+
+// モバイルキーボード表示時に設定シートが隠れないよう調整
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    const sheet = document.querySelector('.settings-sheet');
+    if (!document.getElementById('overlay').classList.contains('open')) return;
+    const vh = window.visualViewport.height;
+    sheet.style.maxHeight = (vh * 0.92) + 'px';
+  });
+}
+</script>
+</body>
+</html>
