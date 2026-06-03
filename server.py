@@ -115,15 +115,23 @@ def _notion_headers(token: str) -> dict:
 
 
 def _clean_page_id(raw: str) -> str:
+    """URLまたはIDからNotionページIDを抽出してUUID形式で返す。"""
+    import re
     raw = raw.strip()
-    if "notion.so" in raw:
-        path = raw.split("?")[0].rstrip("/")
-        segment = path.split("/")[-1]
-        raw_id = segment.split("-")[-1] if "-" in segment else segment
-    else:
-        raw_id = raw.replace("-", "")
-    if len(raw_id) == 32:
-        return f"{raw_id[:8]}-{raw_id[8:12]}-{raw_id[12:16]}-{raw_id[16:20]}-{raw_id[20:]}"
+    # UUID形式（ハイフンあり）がそのまま渡された場合
+    uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+    if uuid_pattern.match(raw):
+        return raw.lower()
+    # URLから32文字の16進数IDを探す
+    hex32 = re.findall(r'([0-9a-f]{32})', raw.lower().replace('-', ''))
+    if hex32:
+        r = hex32[-1]  # 末尾のIDを優先
+        return f"{r[:8]}-{r[8:12]}-{r[12:16]}-{r[16:20]}-{r[20:]}"
+    # ハイフンなし32文字
+    cleaned = raw.replace("-", "").replace(" ", "")
+    if len(cleaned) == 32 and all(c in '0123456789abcdefABCDEF' for c in cleaned):
+        r = cleaned.lower()
+        return f"{r[:8]}-{r[8:12]}-{r[12:16]}-{r[16:20]}-{r[20:]}"
     return raw
 
 
