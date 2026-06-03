@@ -263,16 +263,17 @@
     <div class="sheet-handle"></div>
     <div class="sheet-title">⚙️ Notion 設定</div>
     <label class="field-label">Notion API トークン</label>
-    <input class="field-input" id="notionToken" type="password" placeholder="secret_xxxxxxxx">
+    <input class="field-input" id="notionToken" type="password" placeholder="ntn_xxxxxxxx または secret_xxxxxxxx">
     <label class="field-label">親ページ URL または ID</label>
     <input class="field-input" id="parentPageId" type="text" placeholder="https://notion.so/...">
     <button class="save-settings-btn" onclick="saveSettings()">保存して閉じる</button>
     <button class="test-btn" id="testBtn" onclick="testNotion()" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;padding:12px;cursor:pointer;margin-top:8px;">接続テスト</button>
     <div id="testResult" style="margin-top:10px;font-size:13px;line-height:1.5;display:none;padding:10px;border-radius:8px;"></div>
     <div class="settings-hint">
-      ① <a href="https://www.notion.so/my-integrations" target="_blank" style="color:var(--accent-light)">Notion Integrations</a> でインテグレーション作成<br>
-      ② 保存先ページでインテグレーションに「接続を許可」<br>
-      ③ 初回保存時に「PubMed文献リスト」DBが自動作成されます
+      ① <a href="https://www.notion.so/my-integrations" target="_blank" style="color:var(--accent-light)">Notion Integrations</a> で「内部」インテグレーション作成<br>
+      ② シークレット（ntn_ または secret_ で始まる）をコピー<br>
+      ③ 保存先ページ右上「…」→「接続」でインテグレーションを許可<br>
+      ④ 初回保存時に「PubMed文献リスト」DBが自動作成されます
     </div>
   </div>
 </div>
