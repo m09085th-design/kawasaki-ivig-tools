@@ -39,28 +39,11 @@ def _translate_with_claude(text: str) -> str:
     return message.content[0].text.strip()
 
 
-def _translate_with_mymemory(text: str) -> str:
-    """MyMemory無料APIで日本語→英語翻訳を行う（フォールバック）。"""
-    resp = requests.get(
-        "https://api.mymemory.translated.net/get",
-        params={"q": text, "langpair": "ja|en"},
-        timeout=10,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    if data.get("responseStatus") == 200:
-        return data["responseData"]["translatedText"]
-    raise ValueError(data.get("responseDetails", "翻訳サービスエラー"))
-
-
 @app.get("/api/translate")
 def translate(q: str = Query(..., description="翻訳するテキスト")):
-    """日本語テキストを英語に翻訳する。ANTHROPIC_API_KEY があれば Claude を使用し、なければ MyMemory にフォールバック。"""
+    """日本語テキストを英語に翻訳する（Claude API使用）。"""
     try:
-        if os.environ.get("ANTHROPIC_API_KEY"):
-            translated = _translate_with_claude(q)
-        else:
-            translated = _translate_with_mymemory(q)
+        translated = _translate_with_claude(q)
         return {"translated": translated, "original": q}
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"翻訳失敗: {e}")
