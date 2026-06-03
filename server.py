@@ -94,6 +94,11 @@ def _parse_xml(xml_text: str) -> list[dict]:
 # Notion
 # ---------------------------------------------------------------------------
 
+class TestNotionRequest(BaseModel):
+    notion_token: str
+    parent_page_id: str
+
+
 class CreateDbRequest(BaseModel):
     notion_token: str
     parent_page_id: str
@@ -133,6 +138,30 @@ def _clean_page_id(raw: str) -> str:
         r = cleaned.lower()
         return f"{r[:8]}-{r[8:12]}-{r[12:16]}-{r[16:20]}-{r[20:]}"
     return raw
+
+
+@app.post("/api/test-notion")
+def test_notion(req: TestNotionRequest):
+    """APIトークンとページIDの疎通確認を行う。"""
+    headers = _notion_headers(req.notion_token)
+
+    # ① トークン確認
+    r = requests.get("https://api.notion.com/v1/users/me", headers=headers, timeout=10)
+    if r.status_code == 401:
+        raise HTTPException(status_code=401, detail="APIトークンが無効です。secret_ から始まる正しいトークンか確認してください。")
+    if not r.ok:
+        raise HTTPException(status_code=r.status_code, detail=f"トークン確認エラー: {r.text}")
+
+    # ② ページ確認
+    page_id = _clean_page_id(req.parent_page_id)
+    r2 = requests.get(f"https://api.notion.com/v1/pages/{page_id}", headers=headers, timeout=10)
+    if r2.status_code == 404:
+        raise HTTPException(status_code=404,
+            detail="ページが見つかりません。①ページIDが正しいか、②インテグレーションをページに「接続」しているか確認してください。")
+    if not r2.ok:
+        raise HTTPException(status_code=r2.status_code, detail=f"ページ確認エラー: {r2.text}")
+
+    return {"ok": True, "page_id": page_id, "message": "接続成功！APIトークンとページIDは正しく設定されています。"}
 
 
 @app.post("/api/create-database")

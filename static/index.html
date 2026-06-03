@@ -267,6 +267,8 @@
     <label class="field-label">親ページ URL または ID</label>
     <input class="field-input" id="parentPageId" type="text" placeholder="https://notion.so/...">
     <button class="save-settings-btn" onclick="saveSettings()">保存して閉じる</button>
+    <button class="test-btn" id="testBtn" onclick="testNotion()" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;padding:12px;cursor:pointer;margin-top:8px;">接続テスト</button>
+    <div id="testResult" style="margin-top:10px;font-size:13px;line-height:1.5;display:none;padding:10px;border-radius:8px;"></div>
     <div class="settings-hint">
       ① <a href="https://www.notion.so/my-integrations" target="_blank" style="color:var(--accent-light)">Notion Integrations</a> でインテグレーション作成<br>
       ② 保存先ページでインテグレーションに「接続を許可」<br>
@@ -294,6 +296,47 @@ function openSettings() {
 function closeSettings() {
   document.getElementById('overlay').classList.remove('open');
 }
+async function testNotion() {
+  const token = document.getElementById('notionToken').value.trim();
+  const pageId = document.getElementById('parentPageId').value.trim();
+  const resultEl = document.getElementById('testResult');
+  const btn = document.getElementById('testBtn');
+  if (!token || !pageId) {
+    resultEl.style.display = 'block';
+    resultEl.style.background = '#450a0a';
+    resultEl.style.color = 'var(--error)';
+    resultEl.textContent = 'トークンとページIDを入力してください。';
+    return;
+  }
+  btn.textContent = '確認中...'; btn.disabled = true;
+  resultEl.style.display = 'none';
+  try {
+    const resp = await fetch('/api/test-notion', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({notion_token: token, parent_page_id: pageId}),
+    });
+    const data = await resp.json();
+    resultEl.style.display = 'block';
+    if (resp.ok) {
+      resultEl.style.background = '#14532d';
+      resultEl.style.color = 'var(--success)';
+      resultEl.textContent = '✅ ' + data.message;
+    } else {
+      resultEl.style.background = '#450a0a';
+      resultEl.style.color = 'var(--error)';
+      resultEl.textContent = '❌ ' + (data.detail || '接続失敗');
+    }
+  } catch(e) {
+    resultEl.style.display = 'block';
+    resultEl.style.background = '#450a0a';
+    resultEl.style.color = 'var(--error)';
+    resultEl.textContent = 'エラー: ' + e.message;
+  } finally {
+    btn.textContent = '接続テスト'; btn.disabled = false;
+  }
+}
+
 function saveSettings() {
   localStorage.setItem('notionToken', document.getElementById('notionToken').value.trim());
   localStorage.setItem('parentPageId', document.getElementById('parentPageId').value.trim());
