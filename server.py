@@ -1,0 +1,194 @@
+import xml.etree.ElementTree as ET
+from typing import Optional
+
+import requests
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+app = FastAPI(title="PubMed Notion Search")
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    return FileResponse("static/index.html")
+
+
+# ---------------------------------------------------------------------------
+# PubMed
+# ---------------------------------------------------------------------------
+
+@app.get("/api/search")
+def search_pubmed(q: str = Query(..., description="検索キーワード"), max_results: int = 20):
+    try:
+        search_resp = requests.get(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+            params={"db": "pubmed", "term": q, "retmax": max_results, "retmode": "json", "sort": "relevance"},
+            timeout=15,
+        )
+        search_resp.raise_for_status()
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"PubMed search error: {e}")
+
+    ids = search_resp.json()["esearchresult"]["idlist"]
+    if not ids:
+        return {"articles": [], "total": 0}
+
+    try:
+        fetch_resp = requests.get(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+            params={"db": "pubmed", "id": ",".join(ids), "rettype": "abstract", "retmode": "xml"},
+            timeout=30,
+        )
+        fetch_resp.raise_for_status()
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"PubMed fetch error: {e}")
+
+    articles = _parse_xml(fetch_resp.text)
+    return {"articles": articles, "total": len(articles)}
+
+
+def _parse_xml(xml_text: str) -> list[dict]:
+    root = ET.fromstring(xml_text)
+    articles = []
+    for article in root.findall(".//PubmedArticle"):
+        pmid = getattr(article.find(".//PMID"), "text", "")
+
+        title_elem = article.find(".//ArticleTitle")
+        title = "".join(title_elem.itertext()).strip() if title_elem is not None else "(タイトルなし)"
+
+        abstract_parts = []
+        for a in article.findall(".//AbstractText"):
+            label = a.get("Label")
+            text = "".join(a.itertext()).strip()
+            abstract_parts.append(f"[{label}] {text}" if label else text)
+        abstract = " ".join(abstract_parts) if abstract_parts else "(アブストラクトなし)"
+
+        authors = []
+        for author in article.findall(".//Author"):
+            last = author.findtext("LastName", "")
+            fore = author.findtext("ForeName", "")
+            if last:
+                authors.append(f"{last} {fore}".strip())
+        authors_str = ", ".join(authors[:5]) + (" et al." if len(authors) > 5 else "")
+
+        journal = article.findtext(".//Journal/Title") or article.findtext(".//MedlineTA") or ""
+        year_elem = article.find(".//PubDate/Year") or article.find(".//PubDate/MedlineDate")
+        year = year_elem.text[:4] if year_elem is not None else ""
+
+        articles.append({
+            "pmid": pmid,
+            "title": title,
+            "authors": authors_str,
+            "journal": journal,
+            "year": year,
+            "abstract": abstract,
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+        })
+    return articles
+
+
+# ---------------------------------------------------------------------------
+# Notion
+# ---------------------------------------------------------------------------
+
+class CreateDbRequest(BaseModel):
+    notion_token: str
+    parent_page_id: str
+
+
+class SaveRequest(BaseModel):
+    notion_token: str
+    database_id: str
+    articles: list[dict]
+    query: str
+
+
+def _notion_headers(token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Notion-Version": "2022-06-28",
+    }
+
+
+def _clean_page_id(raw: str) -> str:
+    raw = raw.strip()
+    if "notion.so" in raw:
+        path = raw.split("?")[0].rstrip("/")
+        segment = path.split("/")[-1]
+        raw_id = segment.split("-")[-1] if "-" in segment else segment
+    else:
+        raw_id = raw.replace("-", "")
+    if len(raw_id) == 32:
+        return f"{raw_id[:8]}-{raw_id[8:12]}-{raw_id[12:16]}-{raw_id[16:20]}-{raw_id[20:]}"
+    return raw
+
+
+@app.post("/api/create-database")
+def create_database(req: CreateDbRequest):
+    parent_id = _clean_page_id(req.parent_page_id)
+    payload = {
+        "parent": {"type": "page_id", "page_id": parent_id},
+        "title": [{"type": "text", "text": {"content": "PubMed文献リスト"}}],
+        "properties": {
+            "Title": {"title": {}},
+            "PMID": {"rich_text": {}},
+            "Authors": {"rich_text": {}},
+            "Journal": {"rich_text": {}},
+            "Year": {"number": {}},
+            "Search Query": {"rich_text": {}},
+            "URL": {"url": {}},
+        },
+    }
+    try:
+        resp = requests.post(
+            "https://api.notion.com/v1/databases",
+            headers=_notion_headers(req.notion_token),
+            json=payload,
+            timeout=15,
+        )
+        resp.raise_for_status()
+    except requests.HTTPError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    return {"database_id": resp.json()["id"]}
+
+
+@app.post("/api/save")
+def save_articles(req: SaveRequest):
+    saved, errors = [], []
+    for art in req.articles:
+        year_val = int(art["year"]) if art.get("year", "").isdigit() else None
+        payload = {
+            "parent": {"database_id": req.database_id},
+            "properties": {
+                "Title": {"title": [{"text": {"content": art["title"][:255]}}]},
+                "PMID": {"rich_text": [{"text": {"content": art["pmid"]}}]},
+                "Authors": {"rich_text": [{"text": {"content": art["authors"][:1999]}}]},
+                "Journal": {"rich_text": [{"text": {"content": art["journal"][:1999]}}]},
+                "Year": {"number": year_val},
+                "Search Query": {"rich_text": [{"text": {"content": req.query[:1999]}}]},
+                "URL": {"url": art["url"]},
+            },
+            "children": [
+                {"object": "block", "type": "heading_2",
+                 "heading_2": {"rich_text": [{"text": {"content": "Abstract"}}]}},
+                {"object": "block", "type": "paragraph",
+                 "paragraph": {"rich_text": [{"text": {"content": art["abstract"][:1999]}}]}},
+            ],
+        }
+        try:
+            resp = requests.post(
+                "https://api.notion.com/v1/pages",
+                headers=_notion_headers(req.notion_token),
+                json=payload,
+                timeout=15,
+            )
+            resp.raise_for_status()
+            saved.append(art["pmid"])
+        except requests.HTTPError as e:
+            errors.append({"pmid": art["pmid"], "error": e.response.text})
+
+    return {"saved": saved, "errors": errors}

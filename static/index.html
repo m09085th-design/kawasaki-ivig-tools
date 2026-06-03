@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2563eb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PubMed検索">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<title>PubMed → Notion</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --surface2: #334155;
+    --border: #475569;
+    --accent: #2563eb;
+    --accent-light: #3b82f6;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --success: #22c55e;
+    --error: #ef4444;
+    --safe: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Header */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+    padding-top: calc(12px + env(safe-area-inset-top, 0px));
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header-row { display: flex; align-items: center; gap: 10px; }
+  .app-title { font-size: 17px; font-weight: 700; flex: 1; }
+  .settings-btn {
+    background: none; border: none; color: var(--muted);
+    font-size: 22px; cursor: pointer; padding: 4px; line-height: 1;
+  }
+
+  /* Search bar */
+  .search-row {
+    display: flex; gap: 8px;
+    padding: 12px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .search-input {
+    flex: 1; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px;
+    color: var(--text); font-size: 16px; outline: none;
+    -webkit-appearance: none;
+  }
+  .search-input:focus { border-color: var(--accent-light); }
+  .search-btn {
+    background: var(--accent); border: none; border-radius: 10px;
+    color: white; font-size: 14px; font-weight: 600;
+    padding: 10px 16px; cursor: pointer; white-space: nowrap;
+  }
+  .search-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Options row */
+  .options-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px; color: var(--muted);
+  }
+  .options-row label { display: flex; align-items: center; gap: 6px; }
+  .options-row input[type=number] {
+    width: 52px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 8px; color: var(--text); font-size: 13px;
+  }
+
+  /* Main content */
+  main { flex: 1; overflow-y: auto; padding-bottom: calc(80px + var(--safe)); }
+
+  /* Status bar */
+  .status-bar {
+    padding: 10px 16px; font-size: 13px; color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .status-bar.error { color: var(--error); }
+  .status-bar.success { color: var(--success); }
+  .spinner { animation: spin 0.8s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Article card */
+  .article-card {
+    border-bottom: 1px solid var(--border);
+    padding: 14px 16px;
+    display: flex; gap: 12px; align-items: flex-start;
+    transition: background 0.15s;
+  }
+  .article-card.selected { background: #1e3a5f; }
+  .article-card.saved { opacity: 0.5; }
+
+  .checkbox {
+    width: 22px; height: 22px; border: 2px solid var(--border);
+    border-radius: 6px; flex-shrink: 0; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg); transition: all 0.15s; margin-top: 2px;
+  }
+  .checkbox.checked { background: var(--accent); border-color: var(--accent); }
+  .checkbox.checked::after { content: '✓'; color: white; font-size: 14px; font-weight: bold; }
+  .checkbox.disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .article-body { flex: 1; min-width: 0; }
+  .article-title {
+    font-size: 14px; font-weight: 600; line-height: 1.4;
+    color: var(--text); margin-bottom: 4px;
+  }
+  .article-title a { color: var(--accent-light); text-decoration: none; }
+  .article-meta { font-size: 12px; color: var(--muted); margin-bottom: 6px; line-height: 1.4; }
+  .badge-saved {
+    display: inline-block; background: var(--success); color: white;
+    font-size: 10px; font-weight: 700; border-radius: 4px;
+    padding: 1px 5px; margin-left: 6px; vertical-align: middle;
+  }
+
+  .abstract-toggle {
+    background: none; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--muted); font-size: 12px; padding: 4px 10px;
+    cursor: pointer; margin-bottom: 6px;
+  }
+  .abstract-text {
+    font-size: 13px; color: var(--muted); line-height: 1.6;
+    display: none; padding: 8px; background: var(--bg);
+    border-radius: 8px; border: 1px solid var(--border);
+  }
+  .abstract-text.open { display: block; }
+
+  /* Empty state */
+  .empty {
+    text-align: center; padding: 60px 24px;
+    color: var(--muted); font-size: 15px; line-height: 1.7;
+  }
+  .empty-icon { font-size: 48px; margin-bottom: 12px; }
+
+  /* FAB */
+  .fab {
+    position: fixed;
+    bottom: calc(20px + var(--safe));
+    left: 50%; transform: translateX(-50%);
+    background: var(--accent); color: white;
+    border: none; border-radius: 50px;
+    font-size: 14px; font-weight: 700;
+    padding: 14px 28px;
+    box-shadow: 0 4px 20px rgba(37,99,235,0.5);
+    cursor: pointer; white-space: nowrap;
+    display: none;
+    transition: opacity 0.2s;
+    z-index: 90;
+  }
+  .fab:disabled { opacity: 0.5; cursor: not-allowed; }
+  .fab.visible { display: block; }
+
+  /* Settings overlay */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    z-index: 200; display: none;
+  }
+  .overlay.open { display: block; }
+  .settings-sheet {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--surface); border-radius: 20px 20px 0 0;
+    padding: 20px 20px calc(20px + var(--safe));
+    z-index: 201;
+    transform: translateY(100%); transition: transform 0.3s ease;
+  }
+  .overlay.open .settings-sheet { transform: translateY(0); }
+  .sheet-handle {
+    width: 36px; height: 4px; background: var(--border);
+    border-radius: 2px; margin: 0 auto 20px;
+  }
+  .sheet-title { font-size: 17px; font-weight: 700; margin-bottom: 16px; }
+  .field-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; display: block; }
+  .field-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px;
+    color: var(--text); font-size: 15px; margin-bottom: 14px;
+    outline: none; -webkit-appearance: none;
+  }
+  .field-input:focus { border-color: var(--accent-light); }
+  .save-settings-btn {
+    width: 100%; background: var(--accent); border: none;
+    border-radius: 10px; color: white; font-size: 16px; font-weight: 700;
+    padding: 14px; cursor: pointer;
+  }
+  .settings-hint {
+    font-size: 12px; color: var(--muted); margin-top: 12px; line-height: 1.5;
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed; top: calc(60px + env(safe-area-inset-top, 0px));
+    left: 50%; transform: translateX(-50%);
+    background: var(--surface2); color: var(--text);
+    border-radius: 20px; padding: 10px 20px;
+    font-size: 14px; z-index: 300;
+    opacity: 0; transition: opacity 0.3s;
+    pointer-events: none; white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .toast.show { opacity: 1; }
+  .toast.success { background: #14532d; color: var(--success); }
+  .toast.error { background: #450a0a; color: var(--error); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-row">
+    <div class="app-title">PubMed → Notion</div>
+    <button class="settings-btn" onclick="openSettings()" title="設定">⚙️</button>
+  </div>
+</header>
+
+<div class="search-row">
+  <input class="search-input" id="queryInput" type="search" placeholder="例: Kawasaki disease IVIG"
+    enterkeyhint="search" autocorrect="off" autocapitalize="off" spellcheck="false">
+  <button class="search-btn" id="searchBtn" onclick="doSearch()">検索</button>
+</div>
+
+<div class="options-row">
+  <label>最大件数
+    <input type="number" id="maxResults" value="20" min="1" max="100">
+  </label>
+  <span id="resultCount"></span>
+</div>
+
+<div id="statusBar" class="status-bar" style="display:none"></div>
+
+<main id="main">
+  <div class="empty">
+    <div class="empty-icon">🔬</div>
+    キーワードを入力して<br>PubMedで文献を検索してください
+  </div>
+</main>
+
+<button class="fab" id="fab" onclick="saveSelected()">
+  <span id="fabLabel">選択した 0 件を Notion に保存</span>
+</button>
+
+<!-- Settings sheet -->
+<div class="overlay" id="overlay" onclick="closeSettings()">
+  <div class="settings-sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">⚙️ Notion 設定</div>
+    <label class="field-label">Notion API トークン</label>
+    <input class="field-input" id="notionToken" type="password" placeholder="secret_xxxxxxxx">
+    <label class="field-label">親ページ URL または ID</label>
+    <input class="field-input" id="parentPageId" type="text" placeholder="https://notion.so/...">
+    <button class="save-settings-btn" onclick="saveSettings()">保存して閉じる</button>
+    <div class="settings-hint">
+      ① <a href="https://www.notion.so/my-integrations" target="_blank" style="color:var(--accent-light)">Notion Integrations</a> でインテグレーション作成<br>
+      ② 保存先ページでインテグレーションに「接続を許可」<br>
+      ③ 初回保存時に「PubMed文献リスト」DBが自動作成されます
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '';
+let articles = [];
+let selectedPmids = new Set();
+let savedPmids = new Set();
+let notionDbId = localStorage.getItem('notionDbId') || '';
+let lastQuery = '';
+
+// Settings
+function openSettings() {
+  document.getElementById('notionToken').value = localStorage.getItem('notionToken') || '';
+  document.getElementById('parentPageId').value = localStorage.getItem('parentPageId') || '';
+  document.getElementById('overlay').classList.add('open');
+}
+function closeSettings() {
+  document.getElementById('overlay').classList.remove('open');
+}
+function saveSettings() {
+  localStorage.setItem('notionToken', document.getElementById('notionToken').value.trim());
+  localStorage.setItem('parentPageId', document.getElementById('parentPageId').value.trim());
+  closeSettings();
+  showToast('設定を保存しました', 'success');
+}
+
+// Search
+async function doSearch() {
+  const q = document.getElementById('queryInput').value.trim();
+  if (!q) return;
+  const max = parseInt(document.getElementById('maxResults').value) || 20;
+
+  setStatus('loading', '🔄 PubMedを検索中...');
+  document.getElementById('searchBtn').disabled = true;
+  document.getElementById('main').innerHTML = '';
+  selectedPmids.clear();
+  savedPmids.clear();
+  notionDbId = localStorage.getItem('notionDbId') || '';
+  updateFab();
+
+  try {
+    const resp = await fetch(`${API}/api/search?q=${encodeURIComponent(q)}&max_results=${max}`);
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    articles = data.articles;
+    lastQuery = q;
+    document.getElementById('resultCount').textContent = `${data.total} 件`;
+    renderArticles();
+    setStatus(data.total > 0 ? 'success' : 'info',
+      data.total > 0 ? `${data.total} 件見つかりました` : '検索結果がありませんでした');
+  } catch (e) {
+    setStatus('error', '検索エラー: ' + e.message);
+  } finally {
+    document.getElementById('searchBtn').disabled = false;
+  }
+}
+
+function renderArticles() {
+  const main = document.getElementById('main');
+  if (articles.length === 0) {
+    main.innerHTML = '<div class="empty"><div class="empty-icon">📭</div>該当する文献がありませんでした</div>';
+    return;
+  }
+  main.innerHTML = articles.map((art, i) => `
+    <div class="article-card ${savedPmids.has(art.pmid) ? 'saved' : ''}" id="card-${art.pmid}">
+      <div class="checkbox ${selectedPmids.has(art.pmid) ? 'checked' : ''} ${savedPmids.has(art.pmid) ? 'disabled' : ''}"
+           onclick="toggleSelect('${art.pmid}')" id="chk-${art.pmid}"></div>
+      <div class="article-body">
+        <div class="article-title">
+          <a href="${art.url}" target="_blank">${escHtml(art.title)}</a>
+          ${savedPmids.has(art.pmid) ? '<span class="badge-saved">保存済</span>' : ''}
+        </div>
+        <div class="article-meta">
+          ${escHtml(art.authors)}<br>
+          <em>${escHtml(art.journal)}</em>${art.year ? ' · ' + art.year : ''}
+          · PMID: ${art.pmid}
+        </div>
+        <button class="abstract-toggle" onclick="toggleAbstract('${art.pmid}')">Abstract ▾</button>
+        <div class="abstract-text" id="abs-${art.pmid}">${escHtml(art.abstract)}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleSelect(pmid) {
+  if (savedPmids.has(pmid)) return;
+  if (selectedPmids.has(pmid)) selectedPmids.delete(pmid);
+  else selectedPmids.add(pmid);
+  const chk = document.getElementById('chk-' + pmid);
+  chk.classList.toggle('checked', selectedPmids.has(pmid));
+  document.getElementById('card-' + pmid).classList.toggle('selected', selectedPmids.has(pmid));
+  updateFab();
+}
+
+function toggleAbstract(pmid) {
+  const el = document.getElementById('abs-' + pmid);
+  const btn = el.previousElementSibling;
+  el.classList.toggle('open');
+  btn.textContent = el.classList.contains('open') ? 'Abstract ▴' : 'Abstract ▾';
+}
+
+function updateFab() {
+  const fab = document.getElementById('fab');
+  const n = selectedPmids.size;
+  document.getElementById('fabLabel').textContent = `選択した ${n} 件を Notion に保存`;
+  fab.classList.toggle('visible', n > 0);
+  fab.disabled = false;
+}
+
+// Save to Notion
+async function saveSelected() {
+  const token = localStorage.getItem('notionToken');
+  const parentPageId = localStorage.getItem('parentPageId');
+  if (!token || !parentPageId) {
+    openSettings();
+    showToast('先にNotion設定を入力してください', 'error');
+    return;
+  }
+
+  const toSave = articles.filter(a => selectedPmids.has(a.pmid));
+  if (toSave.length === 0) return;
+
+  document.getElementById('fab').disabled = true;
+  setStatus('loading', `🔄 Notionに保存中 (0/${toSave.length})...`);
+
+  try {
+    // DBがなければ作成
+    if (!notionDbId) {
+      setStatus('loading', '🔄 Notionにデータベースを作成中...');
+      const dbResp = await fetch(`${API}/api/create-database`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notion_token: token, parent_page_id: parentPageId }),
+      });
+      if (!dbResp.ok) {
+        const err = await dbResp.text();
+        throw new Error('DB作成エラー: ' + err);
+      }
+      const dbData = await dbResp.json();
+      notionDbId = dbData.database_id;
+      localStorage.setItem('notionDbId', notionDbId);
+    }
+
+    setStatus('loading', `🔄 保存中 (0/${toSave.length})...`);
+    const saveResp = await fetch(`${API}/api/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        notion_token: token,
+        database_id: notionDbId,
+        articles: toSave,
+        query: lastQuery,
+      }),
+    });
+    if (!saveResp.ok) throw new Error(await saveResp.text());
+    const result = await saveResp.json();
+
+    result.saved.forEach(pmid => {
+      savedPmids.add(pmid);
+      selectedPmids.delete(pmid);
+    });
+    renderArticles();
+    updateFab();
+
+    if (result.errors.length > 0) {
+      setStatus('error', `${result.saved.length} 件保存 / ${result.errors.length} 件エラー`);
+    } else {
+      setStatus('success', `✅ ${result.saved.length} 件をNotionに保存しました`);
+      showToast(`${result.saved.length} 件保存完了！`, 'success');
+    }
+  } catch (e) {
+    setStatus('error', '保存エラー: ' + e.message);
+    showToast('保存に失敗しました', 'error');
+    document.getElementById('fab').disabled = false;
+  }
+}
+
+// UI helpers
+function setStatus(type, msg) {
+  const el = document.getElementById('statusBar');
+  el.style.display = 'flex';
+  el.className = 'status-bar ' + (type === 'loading' ? '' : type === 'success' ? 'success' : type === 'error' ? 'error' : '');
+  el.innerHTML = type === 'loading' ? `<span class="spinner">⏳</span> ${msg}` : msg;
+}
+
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  setTimeout(() => t.className = 'toast ' + type, 2500);
+}
+
+function escHtml(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Enter key search
+document.getElementById('queryInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
+
+// PWA: service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+}
+
+// Auto-open settings if not configured
+window.addEventListener('load', () => {
+  if (!localStorage.getItem('notionToken')) {
+    setTimeout(openSettings, 800);
+  }
+});
+</script>
+</body>
+</html>
